@@ -3,7 +3,7 @@ export interface BarDataItem {
   'Граждане РФ': number;
   'Граждане стран ближнего зарубежья': number;
   'Граждане стран дальнего зарубежья': number;
-  'Дети': number;
+  'дети': number;
 }
 
 export interface BarSeriesItem {

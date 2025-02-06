@@ -5,14 +5,13 @@ import { ChartTotal } from 'components/Chart/ChartTotal';
 import React, { useState } from 'react';
 import { useSelector } from 'react-redux';
 import { transformDataForChart } from 'shared';
-import { calculateYearlyGrowthRate, getTotalColor, getTotalTourists } from 'shared/chartUtils';
+import { calculateYearlyGrowthRate, getTotalColor, getTotalTourists, calculateYearlyGrowthRateForChildren, getBarSeries } from 'shared/chartUtils';
 import { styles } from './ChartComponent.styles';
 import { BarDataItem } from './ChartComponent.types';
 import { ChartControls } from './ChartControls';
 import { ChartLegend } from './ChartLegend';
 import { makeStyles } from '@mui/styles';
 
-// Создаем стили для ChartsGrid
 const useStyles = makeStyles({
   grid: {
     '& line': {
@@ -25,7 +24,8 @@ const useStyles = makeStyles({
 export const ChartComponent: React.FC = () => {
   const fileData = useSelector((state: RootState) => state.file.data);
   const [selectedCategory, setSelectedCategory] = useState<string>('Все туристы');
-  const classes = useStyles(); // Используем стили
+  const [isChildrenSelected, setIsChildrenSelected] = useState<boolean>(false);
+  const classes = useStyles();
 
   if (!fileData || fileData.length === 0) {
     return <Typography>Нет данных для графика</Typography>;
@@ -34,48 +34,15 @@ export const ChartComponent: React.FC = () => {
   const { barData }: { barData: BarDataItem[] } = transformDataForChart(fileData);
   const years = barData.map((item) => item.year);
 
-  // Данные для графика
-  const barSeries =
-    selectedCategory === 'Все туристы'
-      ? [
-          {
-            label: 'Граждане РФ',
-            data: barData.map((item) => item['Граждане РФ']),
-            stack: 'total',
-            color: '#1EF3F4',
-            type: 'bar' as const,
-          },
-          {
-            label: 'Граждане стран ближнего зарубежья',
-            data: barData.map((item) => item['Граждане стран ближнего зарубежья']),
-            stack: 'total',
-            color: '#957AEB',
-            type: 'bar' as const,
-          },
-          {
-            label: 'Граждане стран дальнего зарубежья',
-            data: barData.map((item) => item['Граждане стран дальнего зарубежья']),
-            stack: 'total',
-            color: '#DC62A0',
-            type: 'bar' as const,
-          },
-        ]
-      : [
-          {
-            label: selectedCategory,
-            data: barData.map((item) => item[selectedCategory as keyof BarDataItem] || 0),
-            stack: 'total',
-            color: getTotalColor(selectedCategory),
-            type: 'bar' as const,
-          },
-        ];
+  const barSeries = getBarSeries(barData, selectedCategory, isChildrenSelected);
 
-  // Рассчитываем CAGR для выбранной категории
   const growthRates = calculateYearlyGrowthRate(
     barData.map((item) => ({
       ...item,
       'Граждане РФ':
-        selectedCategory === 'Все туристы'
+        isChildrenSelected
+          ? item['Граждане РФ'] + item['Граждане стран ближнего зарубежья'] + item['Граждане стран дальнего зарубежья']
+          : selectedCategory === 'Все туристы'
           ? item['Граждане РФ'] +
             item['Граждане стран ближнего зарубежья'] +
             item['Граждане стран дальнего зарубежья']
@@ -83,8 +50,18 @@ export const ChartComponent: React.FC = () => {
     }))
   );
 
-  const totalTourists = getTotalTourists(barData, selectedCategory);
-  const totalColor = getTotalColor(selectedCategory);
+  const totalTourists = isChildrenSelected
+    ? barData.reduce((sum, item) => sum + (item['Граждане РФ'] + item['Граждане стран ближнего зарубежья'] + item['Граждане стран дальнего зарубежья']), 0)
+    : selectedCategory === 'Все туристы'
+    ? barData.reduce(
+        (sum, item) => sum + (item['Граждане РФ'] || 0) + (item['Граждане стран ближнего зарубежья'] || 0) + (item['Граждане стран дальнего зарубежья'] || 0),
+        0
+      )
+    : barData.reduce((sum, item) => sum + (item[selectedCategory as keyof BarDataItem] || 0), 0);
+
+  const totalColor = isChildrenSelected ? '#D1916A' : getTotalColor(selectedCategory);
+
+  const cagrForChildren = calculateYearlyGrowthRateForChildren(barData);
 
   const lineSeries = [
     {
@@ -92,20 +69,12 @@ export const ChartComponent: React.FC = () => {
       data: growthRates,
       type: 'line' as const,
       color: '#D6D162',
-      showMark: true, // Включаем точки
-      mark: {
-        // Настройки для точек
-        size: 8, // Размер точек
-        color: '#D6D162', // Цвет точек
-        stroke: '#FFFFFF', // Обводка точек
-        strokeWidth: 2, // Толщина обводки
-      },
+      showMark: true,
       curve: 'linear' as const,
       yAxisKey: 'right-y-axis',
     },
   ];
 
-  // Функция для расчета шага оси Y
   const calculateTickInterval = (maxValue: number): number[] => {
     if (maxValue <= 100) return [0, 20, 40, 60, 80, 100];
     if (maxValue <= 500) return [0, 100, 200, 300, 400, 500];
@@ -113,13 +82,12 @@ export const ChartComponent: React.FC = () => {
     return [0, 500, 1000, 1500, 2000];
   };
 
-  // Максимальное значение для левой оси Y
-  const maxLeftYValue =
-    selectedCategory === 'Все туристы'
-      ? Math.max(...barData.map((item) => item['Граждане РФ'] + item['Граждане стран ближнего зарубежья'] + item['Граждане стран дальнего зарубежья']))
-      : Math.max(...barData.map((item) => item[selectedCategory as keyof BarDataItem] || 0));
+  const maxLeftYValue = isChildrenSelected
+    ? Math.max(...barData.map((item) => item['Граждане РФ'] + item['Граждане стран ближнего зарубежья'] + item['Граждане стран дальнего зарубежья']))
+    : selectedCategory === 'Все туристы'
+    ? Math.max(...barData.map((item) => item['Граждане РФ'] + item['Граждане стран ближнего зарубежья'] + item['Граждане стран дальнего зарубежья']))
+    : Math.max(...barData.map((item) => item[selectedCategory as keyof BarDataItem] || 0));
 
-  // Шаг для левой оси Y
   const leftYTickInterval = calculateTickInterval(maxLeftYValue);
 
   return (
@@ -130,7 +98,12 @@ export const ChartComponent: React.FC = () => {
         </Typography>
         <ChartTotal totalTourists={totalTourists} totalColor={totalColor} />
       </Box>
-      <ChartControls selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} />
+      <ChartControls
+        selectedCategory={selectedCategory}
+        setSelectedCategory={setSelectedCategory}
+        isChildrenSelected={isChildrenSelected}
+        setIsChildrenSelected={setIsChildrenSelected}
+      />
       <ResponsiveChartContainer
         width={700}
         height={300}
@@ -166,14 +139,37 @@ export const ChartComponent: React.FC = () => {
           },
         ]}
       >
-        <g>
-          <BarPlot />
-          <LinePlot />
-        </g>
-        <ChartsGrid
-          horizontal
-          classes={{ root: classes.grid }} // Применяем стили к сетке
-        />
+        {isChildrenSelected ? 
+          <BarPlot barLabel="value"/> : <BarPlot />
+        }
+        <LinePlot />
+        {barSeries.map((series, index) =>
+          series.data.map((value, dataIndex) => (
+            <MarkElement
+              key={`${series.label}-${dataIndex}`}
+              x={years[dataIndex]}
+              y={value}
+              color={series.color}
+              id={''}
+              shape={'circle'}
+              dataIndex={0}
+            />
+          ))
+        )}
+        {lineSeries.map((series, index) =>
+          series.data.map((value, dataIndex) => (
+            <MarkElement
+              key={`${series.label}-${dataIndex}`}
+              x={years[dataIndex]}
+              y={value}
+              color={series.color}
+              id={''}
+              shape={'circle'}
+              dataIndex={0}
+            />
+          ))
+        )}
+        <ChartsGrid horizontal classes={{ root: classes.grid }} />
         <ChartsXAxis
           axisId="x-axis"
           sx={{
@@ -185,7 +181,7 @@ export const ChartComponent: React.FC = () => {
         <ChartsYAxis
           axisId="left-y-axis"
           sx={{
-            stroke: '#E0E0E0', // Серый цвет для левой оси Y
+            stroke: '#E0E0E0',
             fontFamily: '"Montserrat", serif',
             fontWeight: 400,
           }}
