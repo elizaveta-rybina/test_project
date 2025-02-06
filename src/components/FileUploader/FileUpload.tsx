@@ -20,7 +20,7 @@ export const FileUpload: React.FC = () => {
     try {
       const jsonData = await convertXLSXToJSON(file)
       dispatch(setFileData(jsonData))
-      toast.success('Файл успешно загружен и сохранен в сторе')
+      toast.success('Файл успешно загружен')
     } catch (error) {
       console.error('Ошибка при конвертации файла:', error)
       toast.error('Ошибка при загрузке файла')
